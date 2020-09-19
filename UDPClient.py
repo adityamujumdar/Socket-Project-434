@@ -26,7 +26,7 @@ for i in range(ITERATIONS):
 		print('Server replied: ', reply)
 
 	except socket.error as message:
-		print('Error Code : ' + str(message[0]) + ' Message ' + message[1])
+		print('Error Code: '+str(message[0])+' Message '+message[1])
 		sys.exit()
 
 socket_t.close()
