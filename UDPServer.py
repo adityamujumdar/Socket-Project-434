@@ -1,7 +1,6 @@
 import socket, sys, threading, time, random, uuid
-from collections import defaultdict
 ring_id_database = {}
-big_database = [['user-1', '129.0.4.5', '43569', '43568', '43544', 'Free'], ['user-2', '129.0.0.3', '43570', '43571', '43572', 'Free'], ['user-3', '129.0.4.6', '43539', '43538', '43534', 'Free']]
+big_database = []
 
 
 BUFFER_SIZE = 4096
@@ -182,6 +181,9 @@ def run_UDPserver(socket_p, portnumber, buffersize):
         elif('setup-complete' in decoded_split[0]):
             pass
         
+        else:
+            pass
+
         reply = 'Ok...' + data.decode('utf-8')
         socket_p.sendto(reply.encode('utf-8'), client_addr)
         print('Message[' + client_addr[0] + ':' + str(client_addr[1]) + '] - ' + data.decode('utf-8').strip())
