@@ -28,8 +28,8 @@ class UDPClient:
         self.ring_size = 0
         self.rc_ip = None # right clients IP
         self.rc_port = None # right client port
-        self.compute_port = None
-        self.client_name = None
+        self.compute_port = 0
+        self.client_name = ''
 
         # Create socket for pp_2 (right)
         try:
@@ -70,10 +70,10 @@ class UDPClient:
     def interpret_commands(self, depickled_data):
         # for register command
         if(type(depickled_data) is str and depickled_data == 'SUCCESS'):
-            # SUCCESS, client has been registerd
+            # SUCCESS from server at task
             self.print_log(f'SUCCESS')
         elif(type(depickled_data) is str and depickled_data == 'FAILURE'):
-            # FAILURE, client couldn't be registered
+            # FAILURE from server at task
             self.print_log(f'FAILURE')
         elif(type(depickled_data) is tuple and depickled_data[0] == 'SUCCESS' and len(depickled_data) == 5):
             # start the O-ring setup
@@ -81,6 +81,10 @@ class UDPClient:
             self.ring_id, self.ring_size = depickled_data[1], depickled_data[2]
             index_pos = depickled_data[4]
             self.print_log(f'index position is: {index_pos}')
+
+            # sort the clients list according to user numbers
+            #client_lst = tuple(sorted(depickled_data[3], key=lambda item: item[0]))
+
             client_lst = depickled_data[3]
             self.print_log('got client list')
             #right client information
@@ -93,27 +97,46 @@ class UDPClient:
             self.manage_right_client(pickle.dumps(('o-ring-setup', client_lst, index_pos)))
         elif(type(depickled_data) is tuple and depickled_data[0] == 'o-ring-setup'):
             # setup of the ring.
+            self.print_log("Inside o-ring setup")
+            #client_lst = tuple(sorted(depickled_data[1], key=lambda item: item[0]))
             client_lst = depickled_data[1]
             index_pos = depickled_data[2]
             self.print_log(f'index position is: {index_pos}')
             # client allocated leader
             if index_pos == 1:
-                self.compute_port = pp_port_1
-                self.client_name
-                stpreply_msg = pickle.dumps(('setup-complete ' + self.ring_id + ' ' + self.client_name + ' ' + self.compute_port))
-                self.socket_ss.sendto(stpreply_msg, (self.server_ip, self.destination_port))
+                # self.print_log(f'client_lst before sending setup-complete: {client_lst}')
+                # send the compute port (port of elected leader as setup-complete port variable)
+                self.compute_port = (client_lst[0][2])
+                self.client_name = client_lst[0][0]
+                # self.print_log(f"TYPES are -> ring_id: {type(self.ring_id)}. client name: {type(self.client_name)}. compute port: {type(self.compute_port)}")
+                self.print_log(f"ring_id: {self.ring_id}. client name: {self.client_name}. compute port: {self.compute_port} This is going to send setup-complete now")
+                stpreply_msg = 'setup-complete ' + self.ring_id + ' ' + self.client_name + ' ' + self.compute_port
+                self.socket_ss.sendto(stpreply_msg.encode('utf-8'), (self.server_ip, self.destination_port))
+                resp, serv_add = self.socket_ss.recvfrom(4096)
+                dpckl = pickle.loads(resp)
+                self.print_log(f'Server response: {dpckl}')
+                print('Enter command to send: ')
+                self.send_commands_to_server()
             else:
                 if index_pos == len(client_lst):
-                    self.rc_ip = client_lst[index_pos][1]
-                    self.rc_port = int(client_lst[index_pos][3])
+                    self.print_log(f'index position: {index_pos}')
+                    self.rc_ip = client_lst[0][1]
+                    self.print_log(f'right client ip: {self.rc_ip}')
+                    self.rc_port = int(client_lst[0][3])
+                    self.print_log(f'right client port: {self.rc_port}')
+                    # leaders port zero will be used for compute
+                    # self.print_log(f'client_lst: {client_lst}')
+                    # self.print_log(f'compute_port: {int(client_lst[0][2])}, client_name: {client_lst[0][0]}')
+                    # self.compute_port = int(client_lst[0][2])
+                    # self.client_name = client_lst[0][0]
                     index_pos = 1
                 else:
                     self.rc_ip = client_lst[index_pos][1]
                     self.rc_port = int(client_lst[index_pos][3])
+                    self.print_log
                     index_pos+=1
 
-                still_stp_msg = pickle.dumps(('setup', client_lst, index_pos))
-                self.manage_right_client(still_stp_msg)
+                self.manage_right_client(pickle.dumps(('o-ring-setup', client_lst, index_pos)))
 
         elif(type(depickled_data) is tuple and depickled_data[0] == 'FAILURE'  and len(depickled_data) == 5):
             # couldn't setup ring
@@ -140,6 +163,8 @@ class UDPClient:
         reply, address = self.socket_pp_2.recvfrom(4096)
         self.print_log(f'Acknowledgment from {str(address)} has been received')
 
+        self.print_log(f'manage right reply from {address} is {pickle.loads(reply)}')
+        
         self.interpret_commands(pickle.loads(reply))
 
     def send_commands_to_server(self):
