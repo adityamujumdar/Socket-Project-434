@@ -225,10 +225,10 @@ class ThreadedServer:
             send_code = 'FAILURE'
         # key = ring id, value = (username, portnumber)
         self.listening_ports.setdefault(decoded_split[1], (decoded_split[2], decoded_split[3]))
-        print('Printing information about the system')
-        print('database is: ', self.big_database)
-        print('ring id database is: ', self.ringid_database)
-        print('listening port is: ', self.listening_ports)
+        print('Setup Complete! Printing information about the system...')
+        print(f'Database: {self.big_database}')
+        print(f'Ring ID Database: {self.ringid_database}')
+        print(f'Listening port: {self.listening_ports}')
         return send_code
     
     def interpret_request(self, decoded_data):
@@ -263,6 +263,7 @@ class ThreadedServer:
         # Handle Client request
         message = data.decode('utf-8')
         response = self.interpret_request(message)
+        self.print_log(f'response to client: {pickle.loads(response)}')
         try:
             if(response != None):
                 self.print_log(f'REQUEST from {client_addr}')
