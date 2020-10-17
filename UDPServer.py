@@ -1,3 +1,8 @@
+# Aditya Mujumdar and Jendric Shawn Chan
+# COmputer Netorking CSE 434 Fall 2020 Milestone 1
+
+# Multithreaded server
+
 import socket, threading, time, random, uuid, sys, pickle
 from datetime import datetime
 
@@ -8,17 +13,7 @@ class ThreadedServer:
         self.port = port
         self.socket_gen = None
         self.socket_lock = threading.Lock()
-        self.big_database = [
-        ['client-1', '127.0.2', '43501', '43502', 'Free'],
-        ['client-2', '127.0.2', '43501', '43502', 'InRing'],
-        ['client-4', '127.0.1.7', '43518', '4512', 'Free'],
-        ['client-5', '127.0.1.8', '4308', '4312', 'Free'],
-        ['client-6', '127.0.1.9', '43508', '3512', 'InRing'],
-        ['client-7', '127.0.1.0', '4358', '4351', '2322', 'Free'],
-        ['client-8', '127.0.1.1', '4508', '43592', 'Free'],
-        ['client-9', '127.0.1.2', '4358', '43572', 'Free'], 
-        ['client-10', '127.0.1.3', '3508', '43612', '2323', 'Free']]
-
+        self.big_database = []
         self.ringid_database = {}
         self.listening_ports = {}
 
@@ -101,7 +96,7 @@ class ThreadedServer:
         for i in range(len(self.big_database)):
             # check if the username is already in database
             try:
-                if(decoded_split[1] in self.big_database[i]):
+                if(decoded_split[1] == self.big_database[i][0]):
                     if('InRing' in self.big_database[i] or 'Leader' in self.big_database[i]):
                         self.print_log('Client has state InRing or is Leader, cannot deregister')
                         send_code =  'FAILURE'
@@ -127,9 +122,16 @@ class ThreadedServer:
         print('SETUP-RING command')
         # will have setup-ring <n> <user-name> (n>=3)
         n = int(decoded_split[1])
+        inring_flag = False
+        ring_id = None
         free_position = []
+        for i in range(len(self.big_database)):
+            for j in range(len(self.big_database[i])):
+                # check if username in the directory and InRing
+                if(self.big_database[i][j] == decoded_split[2] and 'InRing' in self.big_database[i]):
+                    inring_flag = True
         #check if correct n value is being used
-        if(n>=3 and n%2==1):
+        if(n>=3 and n%2==1 and inring_flag == False):
             user_name = decoded_split[2]
             free_counter = 0 # counts the number of free users in the database
             #check if user_name is registered and Free
@@ -162,9 +164,12 @@ class ThreadedServer:
                 # with user who requested setup-ring being the 3rd user
                 g = random.sample(free_position, (n-1))
                 # select random n-1 Free users to set their state to InRing
-                selected_users = [self.big_database[pos] for pos in g]
-                # append the user requesting setup to the n users list
+                selected_users = []
                 selected_users.append(user_requesting_setup)
+                for pos in g:
+                    selected_users.append(self.big_database[pos])
+                # sort and keep the list alphabetically organized by user name
+                # append the user requesting setup to the n users list
                 for i in range(len(selected_users)):
                     for j in range(len(selected_users[i])):
                         if(selected_users[i][j] == 'Free'):
@@ -178,16 +183,19 @@ class ThreadedServer:
                 # update states in big database:
                 # the states in big database should be automatically updated due to changing those specific elements and assigning them
                 # to selected users. Still printing the database to make sure!
-                print('database: ', self.big_database)
+                print('Updated Database: ', self.big_database)
                 print('\n')
-                print('ringid database: ', self.ringid_database)
-            else:
+                print('Ring ID database: ', self.ringid_database)
+                return send_code, ring_id, n, tuple([tuple(i) for i in self.ringid_database[ring_id]]), 1
+            else:   
+                self.print_log(f'username {username_flag} free counter{free_counter}')
                 self.print_log('Either username was not in database or there weren\'t enough free clients. Please type the command again')
                 send_code = 'FAILURE'
+                return send_code, ring_id, n, tuple(['None','FAILURE']), 20
         else:
-            self.print_log('n is either < 3 or not odd')
+            self.print_log('Username already InRing or n value is either < 3 or not odd')
             send_code = 'FAILURE'
-        return send_code, ring_id, len(self.ringid_database[ring_id]), tuple([tuple(i) for i in self.ringid_database[ring_id]])
+            return send_code, ring_id, n, tuple(['None','FAILURE']), 20
     
     def setup_complete(self, decoded_split):
         send_code = None
@@ -211,6 +219,7 @@ class ThreadedServer:
                         if(self.big_database[i][j] == 'InRing'):
                             self.big_database[i][j] = 'Leader'
             send_code = 'SUCCESS'
+            return send_code
         except:
             print('Couldn\'t change the state to Leader. Please reinput')
             send_code = 'FAILURE'
@@ -224,6 +233,7 @@ class ThreadedServer:
     
     def interpret_request(self, decoded_data):
         send_code = None
+        p_dump = None
         decoded_split = decoded_data.split()
         # for register command
         if(decoded_split[0] == 'register'):
@@ -233,19 +243,18 @@ class ThreadedServer:
         elif(decoded_split[0] == 'deregister'):
             return_code = self.deregister_user(decoded_split)
             p_dump = pickle.dumps(return_code)
-
         # for setup-ring command
         elif(decoded_split[0] == 'setup-ring'):
-            return_code, ring_id, n, users_list = self.setup_ring(decoded_split)
-            stp_ring_returns = (return_code, ring_id, n, users_list)
+            return_code, ring_id, n, users_list, index_pos = self.setup_ring(decoded_split)
+            stp_ring_returns = (return_code, ring_id, n, users_list, index_pos)
             # serialize the data to bytes
             p_dump = pickle.dumps(stp_ring_returns)
             return p_dump
         # for setup-complete
-        elif('setup-complete' in decoded_split[0]):
+        elif(decoded_split[0] == 'setup-complete'):
             return_code = self.setup_complete(decoded_split)
             p_dump = pickle.dumps(return_code)
-        # hold for other methods and their implementation
+        # TODO: hold for other methods and their implementation
         else:
             pass
         return p_dump
@@ -254,15 +263,20 @@ class ThreadedServer:
         # Handle Client request
         message = data.decode('utf-8')
         response = self.interpret_request(message)
-        self.print_log(f'REQUEST from {client_addr}')
-        self.print_log(message)
-        # time.sleep(5) # for testing the capabilities of the threaded server
-        # send response to the client
-        self.print_log(f'RESPONSE to {client_addr}')
-        with self.socket_lock:
-            # resp will be in bytes as a pickled object
-            self.socket_gen.sendto(response, client_addr)
-        self.print_log(pickle.loads(response))
+        try:
+            if(response != None):
+                self.print_log(f'REQUEST from {client_addr}')
+                self.print_log(message)
+                # time.sleep(5) # for testing the capabilities of the threaded server
+                # send response to the client
+                self.print_log(f'RESPONSE to {client_addr}')
+                with self.socket_lock:
+                    # resp will be in bytes as a pickled object
+                    self.socket_gen.sendto(response, client_addr)
+                self.print_log(pickle.loads(response))
+        except:
+                # didn't go in any conditions:
+                self.print_log('Unsupported command was typed. Please retype the command')
 
     def listen(self, buffer_len = 4096):
         # Listen the clients
@@ -283,18 +297,14 @@ class ThreadedServer:
         self.print_log('Closing the socket')
         self.socket_gen.close()
         self.print_log('Socked closed')
+        sys.exit()
 
 def main():
     # Server will handle multiple clients using multithreading     
-    argv = sys.argv[0:]
-    try:
-        if(len(argv)<3):
-            port = int(argv[1])
-    except:
-        print('Usage: python Server.py <port>')
-        sys.exit()
     # Server will listen to all interfaces for host = ''
-    threaded_udp_server = ThreadedServer('', port)
+    # Server would be on port 43500
+    print('Server Starting at port 43599')
+    threaded_udp_server = ThreadedServer('', 43599)
     threaded_udp_server.start_server()
     threaded_udp_server.listen()
 
