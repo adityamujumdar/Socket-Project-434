@@ -266,27 +266,46 @@ class ThreadedServer:
 
 
     def teardown_ring(self, decoded_split):
-        send_code = None
+        send_code = 'FAILURE'
         self.print_log('TEARDOWN-RING command')
         self.print_log(f'Ring ID: {decoded_split[1]}, User name: {decoded_split[2]}')
+        ring_id = decoded_split[1]
+        usr_nm = decoded_split[2]
+        self.print_log(f'ringid_database:{self.ringid_database}')
+        for i in self.ringid_database:
+            if(i == ring_id):
+                self.print_log(f'2ringid_database:{self.ringid_database}')
+                client_list = self.ringid_database[i]
+                self.print_log(f'clientlst:{client_list}')
+                if(client_list[0][0] == usr_nm):
+                    self.print_log(f'client_list[0][0]: {client_list[0][0]}, usr_nm: {usr_nm}')
+                    send_code = 'SUCCESS'
+
+        return send_code
+
+    def teardown_complete(self, decoded_split):
+        self.print_log('TEARDOWN-COMPLETE command')
+        send_code = 'FAILURE'
         ring_id = decoded_split[1]
         usr_nm = decoded_split[2]
         self.print_log(f'ring id: {ring_id}, user name: {usr_nm}')
         for i in self.ringid_database:
             if(i == ring_id):
                 client_list = self.ringid_database[i]
-                if(client_list[0][0] != 'usr_nm'):
+                if(client_list[0][0] == usr_nm):
                     send_code = 'SUCCESS'
-        if(send_code=='SUCCESS'):
-            self.print_log(f'Ring ID Database (before del): {self.ringid_database}')
+        if(send_code == 'SUCCESS'):
+            client_names = [client_list[i][0] for i in range(len(client_list))]
+            for i in range(len(client_names)):
+                for j in range(len(self.big_database)):
+                    if(client_names[i] == self.big_database[j][0] and self.big_database[j][5] == 'Leader' or self.big_database[j][5] == 'InRing'):
+                        # free up the ring clients after teardown
+                        self.big_database[j][5] = 'Free'
             del(self.ringid_database[ring_id])
-            self.print_log(f'Ring ID Database (after del): {self.ringid_database}')
-        else:
-            send_code = 'FAILURE'
+            self.print_log('Teardown Complete! Printing information about the system:')
+            self.print_log(f'Database: {self.big_database}')
+            self.print_log(f'Ring ID Database: {self.ringid_database}')
         return send_code
-
-    def teardown_complete(self, decoded_split):
-        pass
 
     def interpret_request(self, decoded_data):
         send_code = None
