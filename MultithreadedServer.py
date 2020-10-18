@@ -119,7 +119,7 @@ class ThreadedServer:
     def setup_ring(self, decoded_split):
         # Setup the O-Ring
         send_code = None
-        print('SETUP-RING command')
+        self.print_log('SETUP-RING command')
         # will have setup-ring <n> <user-name> (n>=3)
         n = int(decoded_split[1])
         inring_flag = False
@@ -183,8 +183,7 @@ class ThreadedServer:
                 # update states in big database:
                 # the states in big database should be automatically updated due to changing those specific elements and assigning them
                 # to selected users. Still printing the database to make sure!
-                print('Updated Database: ', self.big_database)
-                print('\n')
+
                 print('Ring ID database: ', self.ringid_database)
                 return send_code, ring_id, n, tuple([tuple(i) for i in self.ringid_database[ring_id]]), 1
             else:   
@@ -199,7 +198,7 @@ class ThreadedServer:
     
     def setup_complete(self, decoded_split):
         send_code = None
-        print('SETUP-COMPLETE command')
+        self.print_log('SETUP-COMPLETE command')
         # Change the username's in decoded_split[2] state to Leader in big_database and ringid_database
         # keep the port in decoded_split[3] in listener_database 
         # setup the port given by the client to listen as leader for compute commands
@@ -219,18 +218,76 @@ class ThreadedServer:
                         if(self.big_database[i][j] == 'InRing'):
                             self.big_database[i][j] = 'Leader'
             send_code = 'SUCCESS'
-            return send_code
         except:
             print('Couldn\'t change the state to Leader. Please reinput')
             send_code = 'FAILURE'
         # key = ring id, value = (username, portnumber)
+        self.print_log(decoded_split)
         self.listening_ports.setdefault(decoded_split[1], (decoded_split[2], decoded_split[3]))
-        print('Setup Complete! Printing information about the system...')
-        print(f'Database: {self.big_database}')
-        print(f'Ring ID Database: {self.ringid_database}')
-        print(f'Listening port: {self.listening_ports}')
+        self.print_log('Setup Complete! Printing information about the system...')
+        self.print_log(f'Database: {self.big_database}')
+        self.print_log(f'Ring ID Database: {self.ringid_database}')
+        self.print_log(f'Listening port: {self.listening_ports}')
         return send_code
     
+    def compute(self, decoded_split):
+        self.print_log('COMPUTE command')
+        send_code = 'FAILURE'
+        user_nm = decoded_split[1]
+        if(len(self.ringid_database) == 0):
+            send_code = 'FAILURE'
+        else:
+            for i in range(len(self.big_database)):
+                if(user_nm == self.big_database[i][0] and self.big_database[i][5] =='Free'):
+                    # user is registered
+                    send_code = 'SUCCESS'
+
+        if(send_code=='SUCCESS'):
+            keys = []
+            for i in self.ringid_database:
+                keys.append(i)
+            # ring if of O-ring
+            ring_id_key = random.choice(keys)
+            userlist = self.ringid_database[ring_id_key]
+            # size n
+            size_lst = len(userlist)
+            leader_name = userlist[0][0]
+            leader_ip = userlist[0][1]
+            leader_port = userlist[0][3]
+        else:
+            send_code = 'FAILURE'
+            ring_id_key = 0
+            size_lst = 0
+            leader_name = 0
+            leader_ip = 0
+            leader_port = 0
+
+        return send_code, ring_id_key, size_lst, (leader_name, leader_ip, leader_port)
+
+
+    def teardown_ring(self, decoded_split):
+        send_code = None
+        self.print_log('TEARDOWN-RING command')
+        self.print_log(f'Ring ID: {decoded_split[1]}, User name: {decoded_split[2]}')
+        ring_id = decoded_split[1]
+        usr_nm = decoded_split[2]
+        self.print_log(f'ring id: {ring_id}, user name: {usr_nm}')
+        for i in self.ringid_database:
+            if(i == ring_id):
+                client_list = self.ringid_database[i]
+                if(client_list[0][0] != 'usr_nm'):
+                    send_code = 'SUCCESS'
+        if(send_code=='SUCCESS'):
+            self.print_log(f'Ring ID Database (before del): {self.ringid_database}')
+            del(self.ringid_database[ring_id])
+            self.print_log(f'Ring ID Database (after del): {self.ringid_database}')
+        else:
+            send_code = 'FAILURE'
+        return send_code
+
+    def teardown_complete(self, decoded_split):
+        pass
+
     def interpret_request(self, decoded_data):
         send_code = None
         p_dump = None
@@ -254,8 +311,22 @@ class ThreadedServer:
         elif(decoded_split[0] == 'setup-complete'):
             return_code = self.setup_complete(decoded_split)
             p_dump = pickle.dumps(return_code)
-        # TODO: hold for other methods and their implementation
+        # for teardown-ring
+        elif(decoded_split[0] == 'teardown-ring'):
+            return_code = self.teardown_ring(decoded_split)
+            p_dump = pickle.dumps(return_code)
+            # for teardown-complete
+        elif(decoded_split[0] == 'teardown-complete'):
+            return_code = self.teardown_complete(decoded_split)
+            p_dump = pickle.dumps(return_code)
+            # for compute function
+        elif(decoded_split[0] == 'compute'):
+            send_code, ring_id_key, size_lst, (leader_name, leader_ip, leader_port) = self.compute(decoded_split)
+            compt_rtrn = (send_code, ring_id_key, size_lst, (leader_name, leader_ip, leader_port))
+            # serialize everything to bytes and return
+            p_dump = pickle.dumps(compt_rtrn)
         else:
+            self.print_log('Unsupported command was typed. Please retype the command')
             pass
         return p_dump
 
