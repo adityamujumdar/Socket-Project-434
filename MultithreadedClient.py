@@ -6,7 +6,7 @@
 import socket, sys, pickle, threading
 from datetime import datetime
 
-# TODO: change BUFFER_SIZE in send_commands_to_server to the size of the message
+# TODO: change BUFFER_SIZE in server_communication to the size of the message
 # global BUFFER_SIZE
 # BUFFER_SIZE= 1024
 
@@ -25,38 +25,37 @@ class UDPClient:
         self.pp_port_2 = None
         self.client_ip = None
         self.ring_id = 0
+        self.clients = None
         self.ring_size = 0
         self.rc_ip = None # right clients IP
         self.rc_port = None # right client port
         self.compute_port = 0
         self.client_name = ''
+        self.teardown_id = None
+        self.teardown_name = None
 
+        self.print_log('Creating Sockets...')
         # Create socket for pp_2 (right)
         try:
-            self.print_log('Creating Socket...')
             self.socket_pp_2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             self.socket_pp_2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.print_log('Socket creation successful!')
         except socket.error as msg:
             self.print_log('Socket creation failed. Error Code: ', str(msg[0]), 'Message ', msg[1])
             sys.exit()
 
         # Create socket for pp_1 (left)
         try:
-            self.print_log('Creating Socket...')
             self.socket_pp_1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             self.socket_pp_1.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.print_log('Socket creation successful!')
         except socket.error as msg:
             self.print_log('Socket creation failed. Error Code: ', str(msg[0]), 'Message ', msg[1])
             sys.exit()
 
         # Create socket for ss (server)
         try:
-            self.print_log('Creating Socket...')
             self.socket_ss = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             self.socket_ss.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.print_log('Socket creation successful!')
+            self.print_log('Sockets created successfully!')
         except socket.error as msg:
             self.print_log('Socket creation failed. Error Code: ', str(msg[0]), 'Message ', msg[1])
             sys.exit()
@@ -67,7 +66,7 @@ class UDPClient:
         log_T = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
         print(f'[{log_T}] {msg}')
 
-    def interpret_commands(self, depickled_data):
+    def setup_ring(self, depickled_data):
         # for register command
         if(type(depickled_data) is str and depickled_data == 'SUCCESS'):
             # SUCCESS from server at task
@@ -80,28 +79,23 @@ class UDPClient:
             print(f'Users in Ring from Ring Database: {depickled_data[3]}')
             self.ring_id, self.ring_size = depickled_data[1], depickled_data[2]
             index_pos = depickled_data[4]
-            self.print_log(f'index position is: {index_pos}')
-
             # sort the clients list according to user numbers
             #client_lst = tuple(sorted(depickled_data[3], key=lambda item: item[0]))
-
+            # make a global list of clients to be used by other functions
+            self.clients = depickled_data[3]
             client_lst = depickled_data[3]
-            self.print_log('got client list')
             #right client information
             self.print_log(f'client_lst: {client_lst}')
             self.rc_ip = client_lst[index_pos][1]
             self.rc_port = int(client_lst[index_pos][3])
-            self.print_log(f'self.rc_ip: {self.rc_ip}, self.rc_port: {str(self.rc_port)}')
             index_pos+=1
-            self.print_log('sending o-ring-setup to manage right client')
+            self.print_log('Sending o-ring-setup to right client...')
             self.manage_right_client(pickle.dumps(('o-ring-setup', client_lst, index_pos)))
         elif(type(depickled_data) is tuple and depickled_data[0] == 'o-ring-setup'):
             # setup of the ring.
-            self.print_log("Inside o-ring setup")
             #client_lst = tuple(sorted(depickled_data[1], key=lambda item: item[0]))
             client_lst = depickled_data[1]
             index_pos = depickled_data[2]
-            self.print_log(f'index position is: {index_pos}')
             # client allocated leader
             if index_pos == 1:
                 # self.print_log(f'client_lst before sending setup-complete: {client_lst}')
@@ -109,32 +103,23 @@ class UDPClient:
                 self.compute_port = (client_lst[0][2])
                 self.client_name = client_lst[0][0]
                 # self.print_log(f"TYPES are -> ring_id: {type(self.ring_id)}. client name: {type(self.client_name)}. compute port: {type(self.compute_port)}")
-                self.print_log(f"ring_id: {self.ring_id}. client name: {self.client_name}. compute port: {self.compute_port} This is going to send setup-complete now")
+                self.print_log('Sending setup-complete to server')
                 stpreply_msg = 'setup-complete ' + self.ring_id + ' ' + self.client_name + ' ' + self.compute_port
                 self.socket_ss.sendto(stpreply_msg.encode('utf-8'), (self.server_ip, self.destination_port))
                 resp, serv_add = self.socket_ss.recvfrom(4096)
                 dpckl = pickle.loads(resp)
                 self.print_log(f'Server response: {dpckl}')
                 print('Enter command to send: ')
-                self.send_commands_to_server()
+                self.server_communication()
             else:
                 if index_pos == len(client_lst):
-                    self.print_log(f'index position: {index_pos}')
                     self.rc_ip = client_lst[0][1]
-                    self.print_log(f'right client ip: {self.rc_ip}')
                     self.rc_port = int(client_lst[0][3])
-                    self.print_log(f'right client port: {self.rc_port}')
-                    # leaders port zero will be used for compute
-                    # self.print_log(f'client_lst: {client_lst}')
-                    # self.print_log(f'compute_port: {int(client_lst[0][2])}, client_name: {client_lst[0][0]}')
-                    # self.compute_port = int(client_lst[0][2])
-                    # self.client_name = client_lst[0][0]
                     index_pos = 1
                 else:
                     self.rc_ip = client_lst[index_pos][1]
                     self.rc_port = int(client_lst[index_pos][3])
-                    self.print_log
-                    index_pos+=1
+                    index_pos += 1
 
                 self.manage_right_client(pickle.dumps(('o-ring-setup', client_lst, index_pos)))
 
@@ -147,27 +132,100 @@ class UDPClient:
 
     def manage_left_client(self):
         while 1:
-            reply, address = self.socket_pp_1.recvfrom(4096)
-            self.print_log(f'Message Received from: {str(address)}')
-            
-            self.socket_pp_1.sendto(pickle.dumps('SUCCESS'), address)
-            self.print_log(f'Acknowledgement sent to {str(address)}')
+            response, address = self.socket_pp_1.recvfrom(4096)
+            self.print_log(f'Message received from: {str(address)}')
+            pd_response = pickle.loads(response)
+            if(pd_response[0] == 'o-ring-setup' or pd_response[0] == 'setup-ring'):
+                self.socket_pp_1.sendto(pickle.dumps('SUCCESS'), address)
+                # Acknowledge is sent to right client who sent the message
+                self.print_log(f'Acknowledgement sent to {str(address)}')
+                # Back to Manage setup ring with the reply
+                self.setup_ring(pd_response)
 
-            self.interpret_commands(pickle.loads(reply))
-    
+
     def manage_right_client(self, message):
-        self.print_log('inside right client')
+        pd_msg = pickle.loads(message)
+        if(pd_msg[0] == 'o-ring-setup' or pd_msg[0] == 'setup-ring'):
+            self.socket_pp_2.sendto(message, (self.rc_ip, self.rc_port))
+            self.print_log(f'Message has been sent to {str((self.rc_port, self.rc_ip))}')
+
+            reply, address = self.socket_pp_2.recvfrom(4096)
+            self.print_log(f'Acknowledgment of {pickle.loads(reply)} from {str(address)} has been received')
+            self.setup_ring(pickle.loads(reply))
+
+    def teardown_left(self):
+        while 1:
+            response, address = self.socket_pp_1.recvfrom(4096)
+            self.print_log(f'Message received from: {str(address)}')
+            pd_response = pickle.loads(response)
+            self.socket_pp_1.sendto(pickle.dumps('Teardown-Initialized'), address)
+            self.print_log(f'Teardown has been initialized. This process will be closing it\'s socket')
+            # Acknowledge is sent to right client who sent the message
+            self.print_log(f'Acknowledgement sent to {str(address)}')
+            self.teardown_ring(pd_response)
+    
+    def teardown_right(self, message):
+        pd_msg = pickle.loads(message)
         self.socket_pp_2.sendto(message, (self.rc_ip, self.rc_port))
-        self.print_log(f'Message has been sent to {str((self.rc_port, self.rc_ip))}')
-
+        self.print_log(f'Message from right client: {pickle.loads(message)}')
+        self.print_log(f'Teardown message has been sent to {str((self.rc_port, self.rc_ip))}')
         reply, address = self.socket_pp_2.recvfrom(4096)
-        self.print_log(f'Acknowledgment from {str(address)} has been received')
+        self.print_log(f'Acknowledgment of {pickle.loads(reply)} from {str(address)} has been received')
+        self.teardown_ring(pickle.loads(reply))
 
-        self.print_log(f'manage right reply from {address} is {pickle.loads(reply)}')
-        
-        self.interpret_commands(pickle.loads(reply))
+    def compute(self):
+        pass
 
-    def send_commands_to_server(self):
+    def teardown_ring(self, depickled_data):
+        if type(depickled_data) is list:
+            teardown_index = 1
+            # change type of list of tuples of tuple of tuples
+            client_lst = tuple(depickled_data)
+            client_lst = tuple(sorted(client_lst, key=lambda item: item[0]))
+            self.rc_ip = client_lst[teardown_index][1]
+            self.rc_port = int(client_lst[teardown_index][3])
+            teardown_index+=1
+            self.print_log(f'ringid {self.teardown_id} usr_name {self.teardown_name}')
+            self.print_log('Sending \'teardown-ring\' to right client...')
+            self.teardown_right(pickle.dumps(('teardown-ring', client_lst, teardown_index)))
+        elif type(depickled_data) is tuple:
+            teardown_index = depickled_data[2]
+            client_lst = depickled_data[1]
+            if teardown_index == 1:
+                self.socket_pp_1.close()
+                self.socket_pp_2.close()
+                self.print_log('Sockets have been closed. Sending teardown-complete to server')
+                self.print_log(f'self.teardown_id type: {type(self.teardown_id)}')
+                tear_comp_msg = 'teardown-complete ' + self.teardown_id + ' ' + self.teardown_name
+                self.socket_ss.sendto(tear_comp_msg.encode('utf-8'), (self.server_ip, self.destination_port))
+                resp, serv_add = self.socket_ss.recvfrom(4096)
+                dpckl = pickle.loads(resp)
+                self.print_log(f'Server response: {dpckl}')
+                print('Enter command to send: ')
+                self.server_communication()
+            else:
+                self.print_log(f'client list length: {len(client_lst)}')
+                if teardown_index == len(client_lst):
+                    self.print_log(f'Final index Client list: {client_lst}, {client_lst[0][1]}, {client_lst[0][3]}')
+                    self.rc_ip = client_lst[0][1]
+                    self.rc_port = int(client_lst[0][3])
+                    self.print_log(f'right client ip: {self.rc_ip}')
+                    self.print_log(f'right client port: {self.rc_port}')
+                    teardown_index = 1
+                else:
+                    self.rc_ip = client_lst[teardown_index][1]
+                    self.rc_port = int(client_lst[teardown_index][3])
+                    self.print_log(f'right client ip: {self.rc_ip}')
+                    self.print_log(f'right client port: {self.rc_port}')
+                    teardown_index += 1
+
+                self.teardown_right(pickle.dumps(('teardown-ring', client_lst, teardown_index)))
+        elif type(depickled_data) is str and depickled_data == 'Teardown-Initialized':
+            pass
+        else:
+            self.print_log(f'2decoded split: {depickled_data}decoded split type: {type(depickled_data)}')
+
+    def server_communication(self):
         while 1:
             try:
                 message = input('Enter command to send: ')
@@ -200,10 +258,46 @@ class UDPClient:
                         # depickles the received response
                         de_pickle = pickle.loads(response)
                         self.print_log(f'Server response: {de_pickle}')
-                        self.interpret_commands(de_pickle)
+                        if(decoded_split[0] == 'setup-ring' and type(de_pickle) is tuple and de_pickle[0] == 'SUCCESS'):
+                            self.setup_ring(de_pickle)
+
+                        elif(decoded_split[0] == 'setup-ring' and type(de_pickle) is tuple and de_pickle[0] == 'FAILURE'):
+                            self.print_log('Server returned code FAILURE for setup-ring.')
+
+                        elif(decoded_split[0] == 'register' and type(de_pickle) is tuple and de_pickle == 'SUCCESS'):
+                            self.print_log(f'{decoded_split[1]} has been registered with the server!')
+
+                        elif(decoded_split[0] == 'register' and type(de_pickle) is tuple and de_pickle == 'FAILURE'):
+                            self.print_log(f'{decoded_split[1]} couldn\'t be registered with the server. Please try again')
+
+                        elif(decoded_split[0] == 'deregister' and type(de_pickle) is str and de_pickle == 'SUCCESS'):
+                            self.print_log(f'{decoded_split[1]} has been deregistered')
+
+                        elif(decoded_split[0] == 'deregister' and type(de_pickle) is str and de_pickle == 'FAILURE'):
+                            self.print_log(f'{decoded_split[1]} couldn\'t be deregistered. Please try again')
+
+                        elif(decoded_split[0] == 'teardown-ring' and type(de_pickle) is str and de_pickle == 'SUCCESS'):
+                            self.teardown_id = decoded_split[1]
+                            self.teardown_name = decoded_split[2]
+                            lst_clients = list(self.clients)
+                            self.teardown_ring(lst_clients)
+
+                        elif(decoded_split[0] == 'teardown-ring' and type(de_pickle) is str and de_pickle == 'FAILURE'):
+                            self.print_log('Client has to be leader of O-Ring')
+
+                        elif(decoded_split[0] == 'compute' and type(de_pickle) is tuple and de_pickle[0] == 'SUCCESS'):
+                            self.compute()
+
+                        elif(decoded_split[0] == 'compute' and type(de_pickle) is tuple and de_pickle[0] == 'FAILURE'):
+                            self.print_log('Compute command couldn\'t be selected')
+
+                        else:
+                            # self.print_log('Unexpected command was passed. Reinput')
+                            pass
                 except socket.error as message:
                     self.print_log(f'Error Code: {str(message[0])} | Message {message[1]}')
                     sys.exit()
+
             except KeyboardInterrupt:
                     self.close_socket()
 
@@ -257,14 +351,16 @@ def main():
 
     udp_client = UDPClient(server_ip, 43599)
     udp_client.print_log('Making instances...')
-    server_instance = threading.Thread(target=udp_client.send_commands_to_server)
+    server_instance = threading.Thread(target=udp_client.server_communication)
     client_instance = threading.Thread(target=udp_client.manage_left_client)
+    teardown_left_instance = threading.Thread(target=udp_client.teardown_left)
 
     try:
-        udp_client.print_log('Starting Server Instance...')
+        udp_client.print_log('Server Instance up and running')
+        udp_client.print_log('Client Instances up and running')
         server_instance.start()
-        udp_client.print_log('Starting Client Instance...')
         client_instance.start()
+        teardown_left_instance.start()
 
     except KeyboardInterrupt:
         server_instance.join()
