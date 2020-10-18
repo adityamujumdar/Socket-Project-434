@@ -142,7 +142,6 @@ class UDPClient:
                 # Back to Manage setup ring with the reply
                 self.setup_ring(pd_response)
 
-
     def manage_right_client(self, message):
         pd_msg = pickle.loads(message)
         if(pd_msg[0] == 'o-ring-setup' or pd_msg[0] == 'setup-ring'):
@@ -173,8 +172,9 @@ class UDPClient:
         self.print_log(f'Acknowledgment of {pickle.loads(reply)} from {str(address)} has been received')
         self.teardown_ring(pickle.loads(reply))
 
-    def compute(self):
-        pass
+    def compute(self, depickled_data):
+        self.print_log(f'From Server: {depickled_data}')
+
 
     def teardown_ring(self, depickled_data):
         if type(depickled_data) is list:
@@ -185,7 +185,6 @@ class UDPClient:
             self.rc_ip = client_lst[teardown_index][1]
             self.rc_port = int(client_lst[teardown_index][3])
             teardown_index+=1
-            self.print_log(f'ringid {self.teardown_id} usr_name {self.teardown_name}')
             self.print_log('Sending \'teardown-ring\' to right client...')
             self.teardown_right(pickle.dumps(('teardown-ring', client_lst, teardown_index)))
         elif type(depickled_data) is tuple:
@@ -195,35 +194,29 @@ class UDPClient:
                 self.socket_pp_1.close()
                 self.socket_pp_2.close()
                 self.print_log('Sockets have been closed. Sending teardown-complete to server')
-                self.print_log(f'self.teardown_id type: {type(self.teardown_id)}')
                 tear_comp_msg = 'teardown-complete ' + self.teardown_id + ' ' + self.teardown_name
                 self.socket_ss.sendto(tear_comp_msg.encode('utf-8'), (self.server_ip, self.destination_port))
                 resp, serv_add = self.socket_ss.recvfrom(4096)
                 dpckl = pickle.loads(resp)
                 self.print_log(f'Server response: {dpckl}')
+                self.print_log(f'Teardown of ring with ID {self.teardown_id} has been completed')
                 print('Enter command to send: ')
                 self.server_communication()
             else:
-                self.print_log(f'client list length: {len(client_lst)}')
                 if teardown_index == len(client_lst):
-                    self.print_log(f'Final index Client list: {client_lst}, {client_lst[0][1]}, {client_lst[0][3]}')
                     self.rc_ip = client_lst[0][1]
                     self.rc_port = int(client_lst[0][3])
-                    self.print_log(f'right client ip: {self.rc_ip}')
-                    self.print_log(f'right client port: {self.rc_port}')
                     teardown_index = 1
                 else:
                     self.rc_ip = client_lst[teardown_index][1]
                     self.rc_port = int(client_lst[teardown_index][3])
-                    self.print_log(f'right client ip: {self.rc_ip}')
-                    self.print_log(f'right client port: {self.rc_port}')
                     teardown_index += 1
 
                 self.teardown_right(pickle.dumps(('teardown-ring', client_lst, teardown_index)))
         elif type(depickled_data) is str and depickled_data == 'Teardown-Initialized':
             pass
         else:
-            self.print_log(f'2decoded split: {depickled_data}decoded split type: {type(depickled_data)}')
+            self.print_log(f'Something went wrong. Please try again')
 
     def server_communication(self):
         while 1:
@@ -286,7 +279,7 @@ class UDPClient:
                             self.print_log('Client has to be leader of O-Ring')
 
                         elif(decoded_split[0] == 'compute' and type(de_pickle) is tuple and de_pickle[0] == 'SUCCESS'):
-                            self.compute()
+                            self.compute(de_pickle)
 
                         elif(decoded_split[0] == 'compute' and type(de_pickle) is tuple and de_pickle[0] == 'FAILURE'):
                             self.print_log('Compute command couldn\'t be selected')
